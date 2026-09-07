@@ -90,17 +90,17 @@ A system is **distributed** if it consists of independent processes communicatin
 - Scaling to 10 machines across AWS/LAN requires **zero code changes**—only changing `MASTER_URL` from `localhost` to an external IP.
 
 ### **3. RPC-Style Communication**
-- The frontend triggers search tasks by issuing an HTTP `POST /search` or `POST /search/compare` REST call to the Master. The call blocks asynchronously until all distributed worker processes report back, acting as a Remote Procedure Call.
+- Master $\to$ Worker move assignment is implemented via **plain HTTP-based RPC**. Each worker hosts its own Express HTTP server on a distinct port (e.g. `4001`, `4002`). Master sends a blocking `POST /search` request to the worker with the position and move, and `await`s the response JSON payload containing score, node count, and execution time upon search completion.
 
 ### **4. Message-Oriented Middleware (MOM)**
 - **Decoupled Asynchronous Events**:
-  - `assign_move`: Master $\to$ Worker task assignment payload.
-  - `result`: Worker $\to$ Master result payload (score, node count, elapsed time).
-  - `bound_update` & `global_bound`: Peer-to-peer bound synchronization via Master relay.
+  - `bound_update` & `global_bound`: Peer-to-peer bound synchronization via Master relay over Socket.IO.
+  - `bound_received`: Delivery confirmation metrics.
 
 ### **5. Stream-Oriented Communication**
 - The Master exposes a dedicated Socket.IO `/progress` namespace.
 - As workers explore nodes, they periodically stream progress updates (`progress_update`) to Master, which relays them to the frontend. This provides a live, non-blocking real-time dashboard UI.
+
 
 ---
 

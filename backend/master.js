@@ -44,14 +44,46 @@ function assignNextMove(workerId) {
   worker.status = 'searching';
   worker.currentMove = pending.move;
 
-  worker.socket.emit('assign_move', {
-    position: activeSearch.fen,
+  progressNs.emit('progress', {
+    workerId,
+    nodesExploredSoFar: 0,
+    ts: Date.now(),
     move: pending.move,
-    depth: activeSearch.depth,
-    boundSharing: activeSearch.boundSharing,
-    currentBound: activeSearch.globalBound,
-    searchId: activeSearch.startedAt,
+    status: 'searching',
   });
+
+  const workerUrl = `http://localhost:${worker.httpPort}/search`;
+  console.log(`Master dispatching move "${pending.move}" to Worker ${workerId} via RPC POST ${workerUrl}`);
+
+  fetch(workerUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      position: activeSearch.fen,
+      move: pending.move,
+      depth: activeSearch.depth,
+      boundSharing: activeSearch.boundSharing,
+      currentBound: activeSearch.globalBound,
+    }),
+  })
+    .then((res) => {
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    })
+    .then((data) => {
+      handleWorkerResult(workerId, data);
+    })
+    .catch((err) => {
+      console.error(`Worker ${workerId} RPC error on move "${pending.move}":`, err.message);
+      handleWorkerResult(workerId, {
+        move: pending.move,
+        score: -Infinity,
+        nodesExplored: 0,
+        timeMs: 0,
+      });
+    });
 }
 
 function distributeMoves() {
@@ -119,6 +151,10 @@ function handleWorkerResult(workerId, data) {
 
   if (assignment.status === 'complete') {
     return; // Ignore duplicate result if already marked complete
+  }
+
+  if (assignment.workerId && assignment.workerId !== workerId && assignment.status === 'assigned') {
+    return; // Ignore result from worker if reassigned to another worker
   }
 
   assignment.status = 'complete';
@@ -226,6 +262,8 @@ function finishSearch() {
     boundSharing: activeSearch.boundSharing,
   });
 
+  console.log(`[Master] Distributed search complete! Best move: "${bestMove}", Score: ${bestScore}, Total nodes: ${totalNodes}`);
+
   for (const [, worker] of workers) {
     if (worker.socket.connected) {
       worker.status = 'idle';
@@ -309,21 +347,19 @@ function startDistributedSearch(fen, depth, boundSharing) {
 io.on('connection', (socket) => {
   let workerId = null;
 
-  socket.on('register', ({ workerId: id }) => {
+  socket.on('register', ({ workerId: id, httpPort }) => {
     workerId = String(id);
+    const resolvedPort = httpPort || (4000 + parseInt(workerId, 10));
     workers.set(workerId, {
       socket,
+      httpPort: resolvedPort,
       status: 'idle',
       currentMove: null,
     });
-    console.log(`Worker ${workerId} registered (${workers.size} total)`);
+    console.log(`Worker ${workerId} registered (HTTP port ${resolvedPort}, ${workers.size} total)`);
     if (activeSearch) {
       assignNextMove(workerId);
     }
-  });
-
-  socket.on('result', (data) => {
-    handleWorkerResult(String(data.workerId), data);
   });
 
   socket.on('bound_update', (data) => {

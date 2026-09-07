@@ -36,12 +36,12 @@ Master listens on `http://localhost:3001`:
 
 ```powershell
 cd backend
-node worker.js --id 1
-node worker.js --id 2
-node worker.js --id 3
+node worker.js --id 1 --port 4001
+node worker.js --id 2 --port 4002
+node worker.js --id 3 --port 4003
 ```
 
-Each worker connects to the master and waits for move assignments.
+Each worker starts an Express HTTP RPC server (e.g. port 4001) and connects to master over Socket.IO for bound sharing.
 
 ## 4. Start the Frontend
 
@@ -56,20 +56,22 @@ Open the URL shown (usually `http://localhost:5173`).
 
 1. Drag pieces on the board to set up a position.
 2. Set search depth and toggle bound sharing.
-3. Click **Run Distributed Search** — the master table updates live via Socket.IO.
+3. Click **Run Distributed Search** — the master table updates live via Socket.IO stream.
 4. Click **Compare With/Without Bounds** for the bar chart comparison.
 5. Apply the suggested best move when search completes.
 
 ## Architecture
 
 ```
-[Browser]  <--Socket.IO /progress-->  [Master: Express + Socket.IO]
-                                              |
-                                   Socket.IO (assign/result/bound)
-                                              |
-                            [Worker 1]  [Worker 2]  ...  [Worker N]
+[Browser]  <--Socket.IO /progress stream-->  [Master: Express + Socket.IO]
+                                                    |
+                         +--------------------------+--------------------------+
+                         | HTTP RPC (POST /search)  | Socket.IO (Bound Share)  |
+                         v                          v                          v
+                   [Worker 1: 4001]           [Worker 2: 4002]           [Worker N]
 ```
 
 ## Legacy single-process server
 
 The original MongoDB-backed engine is still in `server.js`. FA-1 uses `master.js` + `worker.js` instead.
+
