@@ -168,6 +168,11 @@ async function searchAssignedMove(fen, move, depth, opts = {}) {
   let minEval = Infinity;
 
   for (let i = 0; i < replies.length; i++) {
+    if (opts.shouldCancel?.()) {
+      const error = new Error('Search cancelled by a newer leader term');
+      error.cancelled = true;
+      throw error;
+    }
     board.move(replies[i]);
     const evalScore = minimax(board, remaining - 1, -Infinity, Infinity, true, rootColor, stats);
     board.undo();
@@ -190,6 +195,11 @@ async function searchAssignedMove(fen, move, depth, opts = {}) {
     }
 
     await yieldToEventLoop();
+    if (opts.shouldCancel?.()) {
+      const error = new Error('Search cancelled by a newer leader term');
+      error.cancelled = true;
+      throw error;
+    }
   }
 
   if (!Number.isFinite(minEval)) {
